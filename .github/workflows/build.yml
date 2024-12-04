@@ -67,7 +67,18 @@ jobs:
         sudo dpkg -i trivy_0.45.0_Linux-64bit.deb
 
     - name: Scan for Vulnerabilities
-      run: trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+      run: trivy fs --exit-code 1 --format sarif -o report.sarif --severity MEDIUM,HIGH,CRITICAL --dependency-tree .
+
+    - name: Upload Trivy Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: trivy-report
+        path: report.sarif
+
+    - name: Upload Trivy SARIF to GitHub Security
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: report.sarif
 
   # build:
   #   strategy:
