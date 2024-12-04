@@ -6,22 +6,13 @@ on:
       - 'main'
 
 jobs:
-  malware-scan:
-    name: Malware Scan with ClamAV
+gitavscan:
     runs-on: ubuntu-latest
-
+    name: AV scan
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
-
-    - name: Install ClamAV
-      run: sudo apt-get install -y clamav
-
-    - name: Update ClamAV Database
-      run: freshclam --quiet --log=/dev/null
-
-    - name: Scan Repository for Malware
-      run: clamscan -r .
+    - uses: actions/checkout@v3
+    - name: Git AV Scan
+      uses: djdefi/gitavscan@main
 
   static-analysis:
       name: Static Code Analysis
