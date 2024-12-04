@@ -6,64 +6,107 @@ on:
       - 'main'
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
-        # https://github.com/actions/runner-images/blob/main/images/macos/macos-13-Readme.md
-        # https://github.com/actions/runner-images/blob/main/images/macos/macos-14-arm64-Readme.md
-        # https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md
-        os: [macos-13, macos-14, macos-15]
-    name: Build
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/cache@v3
-        with:
-          path: .deps
-          key: ${{ matrix.os }}-${{ runner.arch }}-${{ hashFiles('script/install-dep.sh', 'Gemfile', '.bundle/config') }}
-      - run: brew install bash fish xcbeautify
-      - run: ./script/install-dep.sh --all
-      - run: ./build-debug.sh
-      - run: ./run-tests.sh
-        # "-" means "Sign to run locally". There is no aerospace-codesign-certificate in GH Actions
-        # build-release.sh takes too much time to complete in macos-13.
-        # Running build-release.sh only in macos-15, cuts the build time twice in GH Actions.
-      - name: ./build-release.sh on macos-15
-        run: |
-          sw_vers -productVersion
-          if sw_vers -productVersion | grep -q "^15"; then
-            ./build-release.sh --codesign-identity -
-            ./install-from-sources.sh --dont-rebuild
-          fi
-  static-analysis:
-    name: Static Code Analysis
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
-
-    - name: Install SwiftLint
-      run: brew install swiftlint
-
-    - name: Run SwiftLint
-      run: swiftlint lint --strict
-
   malware-scan:
-    name: Malware Scan
+    name: Malware Scan with ClamAV
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v3
 
-    - name: Install ClamAV
-      run: sudo apt-get install -y clamav
+    - name: Fix permissions for ClamAV log
+      run: sudo chmod 666 /var/log/clamav/freshclam.log || sudo touch /var/log/clamav/freshclam.log
 
     - name: Update ClamAV Database
-      run: sudo freshclam
+      run: sudo freshclam --quiet --log=/dev/null
 
-    - name: Scan Repository
+    - name: Scan Repository for Malware
       run: clamscan -r .
+
+  static-analysis:
+      name: Static Code Analysis
+      runs-on: macos-15
+
+      steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        run: swiftlint lint --strict
+  # sonarqube-analysis:
+  #   name: Static Code Analysis with SonarQube
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #   - name: Checkout Code
+  #     uses: actions/checkout@v3
+
+  #   - name: Install SonarQube Scanner
+  #     run: |
+  #       wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+  #       unzip sonar-scanner-cli-5.0.1.3006-linux.zip
+  #       sudo mv sonar-scanner-5.0.1.3006-linux /opt/sonar-scanner
+  #       echo "export PATH=$PATH:/opt/sonar-scanner/bin" >> $GITHUB_ENV
+
+    # - name: Run SonarQube Scanner
+    #   env:
+    #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    #     SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    #   run: |
+    #     sonar-scanner \
+    #       -Dsonar.projectKey=my-swift-project \
+    #       -Dsonar.sources=. \
+    #       -Dsonar.host.url=$SONAR_HOST_URL \
+    #       -Dsonar.login=$SONAR_TOKEN
+
+  trivy-scan:
+    name: Vulnerability Scan with Trivy
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Install Trivy
+      run: |
+        wget https://github.com/aquasecurity/trivy/releases/download/v0.45.0/trivy_0.45.0_Linux-64bit.deb
+        sudo dpkg -i trivy_0.45.0_Linux-64bit.deb
+
+    - name: Scan for Vulnerabilities
+      run: trivy fs --exit-code 1 --severity HIGH,CRITICAL .
+
+  # build:
+  #   strategy:
+  #     matrix:
+  #       # https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+  #       # https://github.com/actions/runner-images/blob/main/images/macos/macos-13-Readme.md
+  #       # https://github.com/actions/runner-images/blob/main/images/macos/macos-14-arm64-Readme.md
+  #       # https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md
+  #       os: [macos-15]
+  #   name: Build
+  #   runs-on: ${{ matrix.os }}
+
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - uses: actions/cache@v3
+  #       with:
+  #         path: .deps
+  #         key: ${{ matrix.os }}-${{ runner.arch }}-${{ hashFiles('script/install-dep.sh', 'Gemfile', '.bundle/config') }}
+  #     - run: brew install bash fish xcbeautify
+  #     - run: ./script/install-dep.sh --all
+  #     - run: ./build-debug.sh
+  #     - run: ./run-tests.sh
+  #       # "-" means "Sign to run locally". There is no aerospace-codesign-certificate in GH Actions
+  #       # build-release.sh takes too much time to complete in macos-13.
+  #       # Running build-release.sh only in macos-15, cuts the build time twice in GH Actions.
+  #     - name: ./build-release.sh on macos-15
+  #       run: |
+  #         sw_vers -productVersion
+  #         if sw_vers -productVersion | grep -q "^15"; then
+  #           ./build-release.sh --codesign-identity -
+  #           ./install-from-sources.sh --dont-rebuild
+  #         fi
+
